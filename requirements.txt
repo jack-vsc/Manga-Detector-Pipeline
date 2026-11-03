@@ -1,0 +1,16 @@
+# Ambiente principal (.venv). Python 3.11.
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0+cu124
+torchvision==0.21.0+cu124
+transformers>=4.49,<5
+peft>=0.14
+accelerate>=1.2
+bitsandbytes>=0.45
+pillow
+numpy<2.3
+opencv-python
+pymupdf
+psutil
+# Detector do Manga Index (scripts/manga_vision.py de lá)
+ultralytics
+onnxruntime-gpu==1.22.0

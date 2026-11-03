@@ -1,0 +1,27 @@
+# Ambiente
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+
+# Dados, modelos e execuções: grandes, gerados localmente ou com direitos de terceiros
+/data/
+/dataset-pt/
+/models/
+/runs/
+/tools/
+/generated-images/
+runs-*.log
+*.gguf
+*.safetensors
+
+# Testes: só os scripts e os Modelfiles são versionados; capítulos, páginas, respostas e builds do app não
+/test-soccer/*
+!/test-soccer/*.sh
+!/test-soccer/Modelfile.*
+
+# Arquivos locais de ferramentas
+.claude/
+.vscode/
+.idea/
+briefing.txt
