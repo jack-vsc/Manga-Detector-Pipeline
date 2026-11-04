@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dataset ao vivo</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a65; --line: #e4e2db;
+    --accent: #2f6f5e; --accent-soft: #2f6f5e22; --warn: #a3542b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151614; --card: #1e201d; --ink: #ecebe6; --muted: #9a9993; --line: #30322e;
+            --accent: #6cc3a6; --accent-soft: #6cc3a62a; --warn: #e0946a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .status { color: var(--muted); font-size: 13px; }
+  .status b { color: var(--accent); font-weight: 600; }
+  .status.stale b { color: var(--warn); }
+  .hero { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin: 16px 0; }
+  .hero .big { font-size: 40px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .hero .of { color: var(--muted); font-size: 16px; }
+  .bar { height: 10px; background: var(--line); border-radius: 5px; overflow: hidden; margin: 12px 0 8px; }
+  .bar div { height: 100%; background: var(--accent); width: 0; transition: width .6s; }
+  .hero .eta { color: var(--muted); font-size: 14px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .tile .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .tile .v { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--muted); font-size: 11px; }
+  .grid { stroke: var(--line); }
+  .area { fill: var(--accent-soft); }
+  .linep { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .table { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td.name { white-space: normal; min-width: 180px; }
+  .empty { color: var(--muted); padding: 20px 0; text-align: center; }
+  .train .big { font-size: 40px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .train .of, .train .eta, .note { color: var(--muted); font-size: 14px; }
+  .t-tiles { margin: 12px 0; }
+  .badge { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-left: 6px;
+           background: var(--accent-soft); color: var(--accent); vertical-align: middle; }
+  .badge.bad { background: transparent; border: 1px solid var(--warn); color: var(--warn); }
+  .lossp { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .evalp { fill: var(--warn); }
+  h2.part { margin: 24px 0 0; }
+  .note { margin-top: 8px; word-break: break-word; }
+  .head-right { display: flex; align-items: center; gap: 10px; }
+  button { font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); background: var(--card);
+           border: 1px solid var(--accent); border-radius: 8px; padding: 5px 12px; cursor: pointer; }
+  button:hover { background: var(--accent-soft); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.warn { color: var(--warn); border-color: var(--warn); }
+  .t-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .t-head h2 { margin: 0; }
+  .tile .s { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .meter { height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+  .meter div { height: 100%; background: var(--accent); width: 0; transition: width .6s; }
+  .meter.hot div { background: var(--warn); }
+  .v.hot { color: var(--warn); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Tradutor local (professor: Claude)</h1>
+    <div class="head-right">
+      <div class="status" id="status">carregando…</div>
+      <button id="reload" title="Ler tudo de novo agora">Atualizar</button>
+    </div>
+  </header>
+
+  <section class="train" id="train" hidden>
+    <div class="t-head">
+      <h2>Treino do modelo local <span class="badge" id="t-state"></span></h2>
+      <button id="t-pause" hidden></button>
+    </div>
+    <span class="big" id="t-step">–</span> <span class="of" id="t-of"></span>
+    <div class="bar"><div id="t-fill"></div></div>
+    <div class="eta" id="t-eta"></div>
+    <div class="tiles t-tiles">
+      <div class="tile"><div class="k">Loss (treino)</div><div class="v" id="t-loss">–</div></div>
+      <div class="tile"><div class="k">Loss (capítulos de fora)</div><div class="v" id="t-eval">–</div></div>
+      <div class="tile"><div class="k">Tempo de treino</div><div class="v" id="t-elapsed">–</div></div>
+      <div class="tile"><div class="k">Por passo</div><div class="v" id="t-pace">–</div></div>
+    </div>
+    <div id="t-chart"></div>
+    <div class="note" id="t-note"></div>
+  </section>
+
+  <section id="sys" hidden>
+    <h2>Máquina</h2>
+    <div class="tiles">
+      <div class="tile"><div class="k">GPU temperatura</div><div class="v" id="g-temp">–</div><div class="meter" id="g-temp-m"><div></div></div><div class="s">estrangula perto de 87 °C</div></div>
+      <div class="tile"><div class="k">GPU uso</div><div class="v" id="g-util">–</div><div class="meter" id="g-util-m"><div></div></div><div class="s" id="g-clock"></div></div>
+      <div class="tile"><div class="k">GPU memória</div><div class="v" id="g-mem">–</div><div class="meter" id="g-mem-m"><div></div></div><div class="s" id="g-mem-s"></div></div>
+      <div class="tile"><div class="k">Emprestada da RAM</div><div class="v" id="g-shared">–</div><div class="s">vídeo que vazou pra RAM; alto = lento</div></div>
+      <div class="tile"><div class="k">CPU uso</div><div class="v" id="c-util">–</div><div class="meter" id="c-util-m"><div></div></div><div class="s" id="c-s"></div></div>
+      <div class="tile"><div class="k">RAM</div><div class="v" id="r-used">–</div><div class="meter" id="r-m"><div></div></div><div class="s" id="r-s"></div></div>
+    </div>
+    <div class="note">Temperatura da CPU o Windows só entrega para administrador; ela aparece no NitroSense.</div>
+  </section>
+
+  <h2 class="part">Dataset</h2>
+  <div class="hero">
+    <span class="big" id="pages">–</span> <span class="of" id="goal"></span>
+    <div class="bar"><div id="fill"></div></div>
+    <div class="eta" id="eta"></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Ritmo</div><div class="v" id="rate">–</div></div>
+    <div class="tile"><div class="k">Capítulos</div><div class="v" id="chapters">–</div></div>
+    <div class="tile"><div class="k">Balões traduzidos</div><div class="v" id="balloons">–</div></div>
+    <div class="tile"><div class="k">Pedidos</div><div class="v" id="requests">–</div></div>
+    <div class="tile"><div class="k">No disco</div><div class="v" id="disk">–</div></div>
+  </div>
+
+  <section>
+    <h2>Páginas acumuladas</h2>
+    <div id="chart"><div class="empty">Ainda sem páginas.</div></div>
+  </section>
+
+  <section>
+    <h2>Capítulos (mais recentes primeiro)</h2>
+    <div class="table" id="table"></div>
+  </section>
+</main>
+<script>
+const REFRESH = 20000
+const num = n => n.toLocaleString('pt-BR')
+const $ = id => document.getElementById(id)
+const hhmm = iso => new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+const esc = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+function duration(hours) {
+  if (!isFinite(hours) || hours <= 0) return '–'
+  const h = Math.floor(hours), m = Math.round((hours - h) * 60)
+  return h ? `${h} h ${m} min` : `${m} min`
+}
+
+// Ritmo das últimas duas horas de páginas (ou de tudo, se houver menos): o replay acelera e desacelera por capítulo.
+function pace(timeline) {
+  if (timeline.length < 2) return 0
+  const end = Date.parse(timeline[timeline.length - 1].hour) + 600000
+  const from = Math.max(Date.parse(timeline[0].hour), end - 2 * 3600000)
+  const pages = timeline.filter(t => Date.parse(t.hour) >= from).reduce((s, t) => s + t.pages, 0)
+  return pages / ((end - from) / 3600000)
+}
+
+function chart(timeline) {
+  if (!timeline.length) return
+  const W = 900, H = 260, L = 44, R = 12, T = 10, B = 26
+  const xs = timeline.map(t => Date.parse(t.hour) + 600000)
+  const x0 = Date.parse(timeline[0].hour), x1 = xs[xs.length - 1]
+  const ymax = Math.max(10, ...timeline.map(t => t.total))
+  const x = v => L + (v - x0) / Math.max(1, x1 - x0) * (W - L - R)
+  const y = v => T + (1 - v / ymax) * (H - T - B)
+  const pts = [[x(x0), y(0)], ...timeline.map((t, i) => [x(xs[i]), y(t.total)])]
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('')
+  let g = ''
+  for (let i = 0; i <= 4; i++) {
+    const v = Math.round(ymax * i / 4), yy = y(v)
+    g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${num(v)}</text>`
+  }
+  const ticks = Math.min(6, timeline.length)
+  for (let i = 0; i < ticks; i++) {
+    const v = x0 + (x1 - x0) * i / Math.max(1, ticks - 1)
+    const anchor = i === 0 ? 'start' : i === ticks - 1 ? 'end' : 'middle'
+    g += `<text x="${x(v)}" y="${H - 6}" text-anchor="${anchor}">${hhmm(v)}</text>`
+  }
+  $('chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Páginas acumuladas ao longo do tempo">${g}
+    <path class="area" d="${line}L${x(x1)},${y(0)}Z"/><path class="linep" d="${line}"/></svg>`
+}
+
+function table(chapters) {
+  const rows = [...chapters].sort((a, b) => b.last_at.localeCompare(a.last_at))
+  $('table').innerHTML = rows.length ? `<table><thead><tr><th>Capítulo</th><th class="n">Páginas</th><th class="n">Balões</th><th class="n">Último</th></tr></thead><tbody>${
+    rows.map(c => `<tr><td class="name">${esc(c.chapter)}</td><td class="n">${num(c.pages)}</td><td class="n">${num(c.balloons)}</td><td class="n">${c.last_at ? hhmm(c.last_at) : '–'}</td></tr>`).join('')
+  }</tbody></table>` : '<div class="empty">Nenhum capítulo ainda.</div>'
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch('stats.json', { cache: 'no-store' })).json()
+    const { chapters, timeline, totals } = s
+    const pages = timeline.length ? timeline[timeline.length - 1].total : 0
+    const goal = totals.goal_pages
+    const rate = pace(timeline)
+    $('pages').textContent = num(pages)
+    $('goal').textContent = `de ${num(goal)} páginas (${(100 * pages / goal).toFixed(1)}%)`
+    $('fill').style.width = Math.min(100, 100 * pages / goal) + '%'
+    $('eta').textContent = pages >= goal ? 'Meta alcançada.'
+      : rate ? `Faltam ${num(goal - pages)} páginas, cerca de ${duration((goal - pages) / rate)} no ritmo atual.` : ''
+    $('rate').textContent = rate ? `${Math.round(rate)} pág/h` : '–'
+    $('chapters').textContent = num(chapters.length)
+    $('balloons').textContent = num(chapters.reduce((n, c) => n + c.balloons, 0))
+    $('requests').textContent = num(chapters.reduce((n, c) => n + c.requests, 0))
+    $('disk').textContent = totals.disk_mb >= 1024 ? `${(totals.disk_mb / 1024).toFixed(2)} GB` : `${totals.disk_mb} MB`
+    chart(timeline)
+    table(chapters)
+    const last = timeline.length ? Date.parse(timeline[timeline.length - 1].hour) + 600000 : 0
+    const idle = last && Date.now() - last > 30 * 60000
+    $('status').className = 'status' + (idle ? ' stale' : '')
+    $('status').innerHTML = `${idle ? '<b>parado?</b> nenhuma página nova há 30 min' : '<b>●</b> ao vivo'} · lido às ${hhmm(totals.measured_at)}`
+  } catch (err) {
+    $('status').className = 'status stale'
+    $('status').innerHTML = '<b>sem conexão</b> com o servidor do painel'
+  }
+}
+const STATES = {
+  preparing: ['preparando os dados', false], training: ['treinando', false], done: ['concluído', false],
+  stopped: ['parado?', true], failed: ['falhou', true], paused: ['pausado', true],
+}
+
+function lossChart(losses, evals) {
+  if (losses.length < 2) { $('t-chart').innerHTML = ''; return }
+  const W = 900, H = 200, L = 44, R = 12, T = 10, B = 22
+  const all = [...losses, ...evals]
+  const e1 = Math.max(...all.map(p => p.epoch)), ymax = Math.max(...all.map(p => p.loss)) * 1.05
+  const x = e => L + e / e1 * (W - L - R), y = v => T + (1 - v / ymax) * (H - T - B)
+  let g = ''
+  for (let i = 0; i <= 3; i++) {
+    const v = ymax * i / 3, yy = y(v)
+    g += `<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end">${v.toFixed(2)}</text>`
+  }
+  g += `<text x="${L}" y="${H - 4}">época 0</text><text x="${W - R}" y="${H - 4}" text-anchor="end">época ${e1.toFixed(2)}</text>`
+  const line = losses.map((p, i) => (i ? 'L' : 'M') + x(p.epoch).toFixed(1) + ',' + y(p.loss).toFixed(1)).join('')
+  const dots = evals.map(p => `<circle class="evalp" cx="${x(p.epoch)}" cy="${y(p.loss)}" r="4"/>`).join('')
+  $('t-chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Loss ao longo do treino">${g}<path class="lossp" d="${line}"/>${dots}</svg>`
+}
+
+async function refreshTraining() {
+  try {
+    const t = await (await fetch('training.json', { cache: 'no-store' })).json()
+    if (t.state === 'absent') { $('train').hidden = true; return }
+    $('train').hidden = false
+    const [label, bad] = STATES[t.state] ?? [t.state, false]
+    $('t-state').textContent = label
+    $('t-state').className = 'badge' + (bad ? ' bad' : '')
+    const steps = t.steps ?? 0, step = t.step ?? 0
+    $('t-step').textContent = steps ? `passo ${num(step)}` : '–'
+    $('t-of').textContent = steps ? `de ${num(steps)} (${(100 * step / steps).toFixed(1)}%)` : ''
+    $('t-fill').style.width = steps ? 100 * step / steps + '%' : '0'
+    $('t-eta').textContent = t.state === 'done' ? 'Adaptador salvo em runs/' + t.name + '/final.'
+      : t.state === 'training' && t.left_s != null ? `Termina em cerca de ${duration(t.left_s / 3600)} (por volta de ${hhmm(Date.now() + t.left_s * 1000)}).`
+      : t.state === 'preparing' ? 'Medindo os pedidos e carregando o modelo; o primeiro passo aparece em alguns minutos.'
+      : t.state === 'paused' ? 'Pausado: ao clicar em Continuar ele segue exatamente de onde parou. A memória da placa continua reservada.'
+      : t.state === 'stopped' ? `Nada novo no log há ${duration(t.quiet_s / 3600)}.` : ''
+    const last = a => a.length ? a[a.length - 1].loss.toFixed(3) : '–'
+    $('t-loss').textContent = last(t.losses)
+    $('t-eval').textContent = last(t.evals)
+    $('t-elapsed').textContent = t.trained_s != null ? duration(t.trained_s / 3600) : '–'
+    $('t-pace').textContent = t.pace_s != null ? `${Math.round(t.pace_s)} s` : '–'
+    lossChart(t.losses, t.evals)
+    $('t-note').textContent = t.state === 'failed' || t.state === 'stopped' ? 'Última linha do log: ' + t.last_line
+      : t.evals.length ? 'Pontos laranja: loss nos capítulos que o modelo nunca viu (medida a cada 200 passos).' : ''
+  } catch (err) { /* a parte do dataset já avisa quando o servidor cai */ }
+}
+
+const gb = b => (b / 2 ** 30).toFixed(1)
+function meter(id, share, hot) {
+  $(id).firstElementChild.style.width = Math.min(100, Math.max(0, share * 100)) + '%'
+  $(id).classList.toggle('hot', !!hot)
+}
+
+let paused = false
+async function refreshSystem(answer) {
+  try {
+    const m = await (answer ?? fetch('system.json', { cache: 'no-store' })).then(r => r.json())
+    $('sys').hidden = false
+    const g = m.gpu
+    if (g) {
+      $('g-temp').textContent = g.temp + ' °C'
+      $('g-temp').classList.toggle('hot', g.temp >= 80)
+      meter('g-temp-m', g.temp / 90, g.temp >= 80)
+      $('g-util').textContent = g.util + '%'
+      meter('g-util-m', g.util / 100)
+      $('g-clock').textContent = `${num(g.clock)} MHz` + (g.power != null ? ` · ${g.power.toFixed(0)} W` : '')
+      $('g-mem').textContent = `${(g.mem_used / 1024).toFixed(1)} GB`
+      meter('g-mem-m', g.mem_used / g.mem_total, g.mem_used / g.mem_total > 0.97)
+      $('g-mem-s').textContent = `de ${(g.mem_total / 1024).toFixed(1)} GB`
+    }
+    const sh = m.shared_mb
+    $('g-shared').textContent = sh == null ? '–' : sh >= 1024 ? (sh / 1024).toFixed(1) + ' GB' : sh + ' MB'
+    $('g-shared').classList.toggle('hot', sh > 1500)
+    $('c-util').textContent = Math.round(m.cpu.util) + '%'
+    meter('c-util-m', m.cpu.util / 100, m.cpu.util > 90)
+    $('c-s').textContent = `${m.cpu.cores} núcleos` + (m.cpu.ghz ? ` · ${m.cpu.ghz.toFixed(1)} GHz` : '')
+    $('r-used').textContent = `${gb(m.ram.used)} GB`
+    meter('r-m', m.ram.used / m.ram.total, m.ram.used / m.ram.total > 0.9)
+    $('r-s').textContent = `de ${gb(m.ram.total)} GB · treino usa ${gb(m.ram.train)} GB`
+    const b = $('t-pause')
+    b.hidden = !m.training.running
+    paused = m.training.paused
+    b.textContent = paused ? '▶ Continuar' : '⏸ Pausar'
+    b.className = paused ? '' : 'warn'
+  } catch (err) { /* a parte do dataset já avisa quando o servidor cai */ }
+}
+
+$('t-pause').onclick = async () => {
+  const b = $('t-pause')
+  b.disabled = true
+  await Promise.all([refreshSystem(fetch(paused ? 'resume' : 'pause', { method: 'POST' })), refreshTraining()])
+  b.disabled = false
+}
+
+const refreshAll = () => Promise.all([refresh(), refreshTraining(), refreshSystem()])
+$('reload').onclick = async () => {
+  $('reload').disabled = true
+  await refreshAll()
+  $('reload').disabled = false
+}
+
+refreshAll()
+setInterval(refreshAll, REFRESH)
+</script>
+</body>
+</html>
