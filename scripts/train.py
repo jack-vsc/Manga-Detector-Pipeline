@@ -2,11 +2,11 @@
 
 Entrada: a página com as caixas numeradas, a imagem-chave com cada caixa recortada e o prompt do próprio
 app. Saída: o JSON de blocos que o Claude respondeu. O dataset é o que o Manga Index grava em
-%APPDATA%/Manga Index/training-dataset (veja dataset_stats.py): pedidos de página e repescagens das caixas
-que ficaram de fora. Alguns capítulos inteiros ficam de fora do treino
+%APPDATA%/Manga Index/training-dataset (veja dataset_stats.py), ou outra pasta com --dataset: pedidos de
+página e repescagens das caixas que ficaram de fora. Alguns capítulos inteiros ficam de fora do treino
 para medir o modelo em páginas que ele nunca viu. O adaptador vai para runs/<nome>/final.
 
-Uso: python scripts/train.py --name manga-translate [--resume]
+Uso: python scripts/train.py --name q35-2b --base Qwen/Qwen3.5-2B --dataset dataset-pt/final --max-tokens 2600
 """
 import argparse
 import hashlib
@@ -20,16 +20,23 @@ from torch.utils.data import Dataset
 from transformers import Trainer, TrainingArguments
 
 from common import BASE_MODEL, MAX_TOKENS, PAGE_TOKENS, PAGE_TOKENS_SHRUNK, ROOT
-from dataset_stats import DATASET
+import dataset_stats
 from model import load_model, load_processor, messages, request_images
+import model as model_module
 
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+# O Qwen3.5 tem também camadas de atenção linear (in_proj_qkv, in_proj_z, out_proj). Só o modelo de
+# linguagem aprende.
+LORA_TARGETS_QWEN35 = r".*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj|in_proj_qkv|in_proj_z|out_proj)"
+DATASET = dataset_stats.DATASET  # trocado por --dataset
 
 
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--name", default="manga-translate")
     p.add_argument("--base", default=BASE_MODEL)
+    p.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="pedido mais longo treinado (as páginas encolhem para caber)")
+    p.add_argument("--dataset", help="pasta do dataset (padrão: training-dataset do Manga Index), ex.: dataset-pt/final")
     p.add_argument("--val-chapters", type=float, default=0.03, help="fração dos capítulos fora do treino")
     p.add_argument("--val-max", type=int, default=150, help="máximo de pedidos de validação medidos")
     p.add_argument("--epochs", type=float, default=1)
@@ -53,15 +60,19 @@ def held_out(chapter, share):
 class Requests(Dataset):
     """Pedidos do Manga Index; as imagens só são abertas quando pedidas."""
 
-    def __init__(self, records):
+    def __init__(self, records, root=None):
         self.records = records
+        # Guardados aqui porque no Windows os workers do DataLoader reimportam o módulo com os valores padrão.
+        self.root = root or DATASET
+        self.unit = model_module.UNIT
 
     def __len__(self):
         return len(self.records)
 
     def __getitem__(self, i):
         r = self.records[i]
-        images = request_images([Image.open(DATASET / "images" / img["file"]) for img in r["images"]], r.get("page_tokens", PAGE_TOKENS))
+        model_module.UNIT = self.unit
+        images = request_images([Image.open(self.root / "images" / img["file"]) for img in r["images"]], r.get("page_tokens", PAGE_TOKENS))
         return images, r["prompt"], r["answer"]
 
 
@@ -85,11 +96,19 @@ class Collator:
     def __init__(self, processor):
         self.processor = processor
         self.processor.tokenizer.padding_side = "right"
-        self.answer_starts = processor.tokenizer.encode("<|im_start|>assistant\n", add_special_tokens=False)
+        # A resposta começa depois da abertura do turno do assistente. No Qwen3.5 sem raciocínio essa
+        # abertura inclui um <think></think> vazio, igual ao que o llama-server envia no uso.
+        opened = processor.apply_chat_template(messages("x"), tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        self.opening = opened[opened.rindex("<|im_start|>assistant\n"):]
+        self.answer_starts = processor.tokenizer.encode(self.opening, add_special_tokens=False)
+
+    def text(self, prompt, answer, images):
+        asked = self.processor.apply_chat_template(messages(prompt, images=images), tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        return asked + answer + "<|im_end|>\n"
 
     def __call__(self, batch):
         p = self.processor
-        full = [p.apply_chat_template(messages(prompt, answer, len(imgs)), tokenize=False) for imgs, prompt, answer in batch]
+        full = [self.text(prompt, answer, len(imgs)) for imgs, prompt, answer in batch]
         enc = p(text=full, images=[img for imgs, _, _ in batch for img in imgs], padding=True, return_tensors="pt")
         labels = enc["input_ids"].clone()
         labels[enc["attention_mask"] == 0] = -100
@@ -113,7 +132,7 @@ def fits(processor, collator, dataset, name, heaviest=0):
             if n <= MAX_TOKENS or len(r["images"]) == 1:
                 break
             r = {**r, "page_tokens": budget}
-            n = collator([Requests([r])[0]])["input_ids"].shape[1]
+            n = collator([Requests([r], dataset.root)[0]])["input_ids"].shape[1]
         if n <= MAX_TOKENS:
             keep.append((n, r))
             shrunk += "page_tokens" in r
@@ -121,7 +140,7 @@ def fits(processor, collator, dataset, name, heaviest=0):
     if heaviest:
         keep = sorted(keep, key=lambda k: -k[0])[:heaviest]
         print(f"{name}: os {len(keep)} mais longos, de {keep[-1][0]} a {keep[0][0]} tokens")
-    return Requests([r for _, r in keep])
+    return Requests([r for _, r in keep], dataset.root)
 
 
 class AnswerTrainer(Trainer):
@@ -187,20 +206,28 @@ def build_model(args):
     from peft import LoraConfig, get_peft_model
 
     # Sem isso a atenção cai no kernel "math", que monta a matriz inteira: 1,2 GB a mais num pedido de 3,5k
-    # tokens, e mais devagar.
-    torch.backends.cuda.enable_math_sdp(False)
+    # tokens. O Qwen3.5 precisa dele, porque os outros kernels recusam os formatos das suas 6 camadas de
+    # atenção completa.
+    if "qwen3.5" not in str(args.base).lower():
+        torch.backends.cuda.enable_math_sdp(False)
     model = load_model(args.base)
     # Só o modelo de linguagem aprende (as camadas de visão se chamam qkv/proj/fc1/fc2).
     model.config.use_cache = False
     model.enable_input_require_grads()
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model = get_peft_model(model, LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05, target_modules=LORA_TARGETS, task_type="CAUSAL_LM"))
+    targets = LORA_TARGETS_QWEN35 if model.config.model_type.startswith("qwen3_5") else LORA_TARGETS
+    model = get_peft_model(model, LoraConfig(r=args.lora_r, lora_alpha=2 * args.lora_r, lora_dropout=0.05, target_modules=targets, task_type="CAUSAL_LM"))
     model.print_trainable_parameters()
     return model
 
 
 def main():
     args = parse_args()
+    global DATASET, MAX_TOKENS
+    MAX_TOKENS = args.max_tokens
+    if args.dataset:
+        DATASET = (ROOT / args.dataset).resolve()
+    print(f"dataset: {DATASET}")
     cap_memory()
     train, val = load_examples(args)
     processor = load_processor(args.base)
@@ -218,7 +245,8 @@ def main():
         max_steps=args.max_steps,
         learning_rate=args.lr,
         lr_scheduler_type="cosine",
-        warmup_ratio=0.03,
+        # O transformers 5 tirou warmup_ratio; lá um warmup_steps menor que 1 é a fração dos passos.
+        **({"warmup_ratio": 0.03} if "warmup_ratio" in TrainingArguments.__dataclass_fields__ else {"warmup_steps": 0.03}),
         optim="paged_adamw_8bit",
         bf16=True,
         gradient_checkpointing=True,

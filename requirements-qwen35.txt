@@ -1,0 +1,14 @@
+# Ambiente do Qwen3.5 (.venv-q35): treino e fusão do adaptador. O Qwen3.5 só existe no transformers 5, e
+# as camadas de atenção linear precisam do flash-linear-attention (com Triton no Windows). Python 3.11.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.11.0+cu128
+torchvision==0.26.0+cu128
+transformers==5.22.1
+peft==0.21.2
+accelerate>=1.15
+bitsandbytes>=0.50
+flash-linear-attention==0.6.0
+triton-windows; sys_platform == "win32"
+pillow
+numpy<2.3
+psutil
