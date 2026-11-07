@@ -46,6 +46,12 @@ def compute(name="manga-translate"):
                 d = ast.literal_eval(m[0])
             except (ValueError, SyntaxError):
                 continue
+            # O transformers 5 imprime os números como texto ({'loss': '0.2557'}).
+            for k, v in d.items():
+                try:
+                    d[k] = float(v) if isinstance(v, str) else v
+                except ValueError:
+                    pass
             if "loss" in d:
                 losses.append({"epoch": d.get("epoch"), "loss": d["loss"], "lr": d.get("learning_rate")})
             if "eval_loss" in d:
