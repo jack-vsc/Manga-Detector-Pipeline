@@ -4,7 +4,7 @@ Serve a página em http://localhost:8770. A página consulta a cada 20 s /stats.
 via dataset_stats.py), /training.json (o log do treino) e /system.json (GPU, CPU e RAM). POST /pause e
 /resume pausam e retomam o treino. Com --host 0.0.0.0 um celular na mesma rede também abre o painel.
 
-Uso: python scripts/dataset_panel.py [--port 8770] [--host 0.0.0.0] [--goal 5000]
+Uso: python scripts/dataset_panel.py [--port 8770] [--host 0.0.0.0] [--run q35-2b-v2 --compare q35-2b]
 """
 import argparse
 import json
@@ -35,6 +35,19 @@ def stats(goal):
         return _last[1]
 
 
+RUN = "manga-translate"  # --run: treino acompanhado (runs-<nome>.log)
+COMPARE = None  # --compare: treino anterior desenhado por baixo
+
+
+def training_with_compare():
+    t = training(RUN)
+    if COMPARE:
+        c = training(COMPARE)
+        if c.get("losses"):
+            t["compare"] = {"name": COMPARE, "losses": c["losses"], "evals": c["evals"]}
+    return t
+
+
 _system = (0.0, None)
 _system_lock = Lock()
 
@@ -55,7 +68,7 @@ def handler(goal):
             if path == "/stats.json":
                 body, kind = stats(goal), "application/json"
             elif path == "/training.json":
-                body, kind = json.dumps(training(), ensure_ascii=False).encode(), "application/json"
+                body, kind = json.dumps(training_with_compare(), ensure_ascii=False).encode(), "application/json"
             elif path == "/system.json":
                 body, kind = system(), "application/json"
             elif path.startswith("/teste/"):
@@ -114,7 +127,11 @@ def main():
     p.add_argument("--host", default="127.0.0.1", help="0.0.0.0 para abrir de outros aparelhos da rede")
     p.add_argument("--goal", type=int, default=5000, help="meta de páginas do dataset")
     p.add_argument("--dataset", help="outra pasta de dataset (ex.: dataset-pt/data)")
+    p.add_argument("--run", default="manga-translate", help="treino acompanhado (runs-<nome>.log)")
+    p.add_argument("--compare", help="treino anterior desenhado por baixo (runs-<nome>.log)")
     args = p.parse_args()
+    global RUN, COMPARE
+    RUN, COMPARE = args.run, args.compare
     if args.dataset:
         import dataset_stats
         dataset_stats.DATASET = Path(args.dataset).resolve()

@@ -54,6 +54,9 @@
   .badge.bad { background: transparent; border: 1px solid var(--warn); color: var(--warn); }
   .lossp { fill: none; stroke: var(--accent); stroke-width: 2; }
   .evalp { fill: var(--warn); }
+  /* Treino anterior: linha tracejada e apagada, pontos de validação vazados. */
+  .cmpp { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .8; }
+  .cmpe { fill: var(--card); stroke: var(--warn); stroke-width: 2; }
   h2.part { margin: 24px 0 0; }
   .note { margin-top: 8px; word-break: break-word; }
   .head-right { display: flex; align-items: center; gap: 10px; }
@@ -224,10 +227,10 @@ const STATES = {
   stopped: ['parado?', true], failed: ['falhou', true], paused: ['pausado', true],
 }
 
-function lossChart(losses, evals) {
+function lossChart(losses, evals, cmp) {
   if (losses.length < 2) { $('t-chart').innerHTML = ''; return }
   const W = 900, H = 200, L = 44, R = 12, T = 10, B = 22
-  const all = [...losses, ...evals]
+  const all = [...losses, ...evals, ...(cmp ? [...cmp.losses, ...cmp.evals] : [])]
   const e1 = Math.max(...all.map(p => p.epoch)), ymax = Math.max(...all.map(p => p.loss)) * 1.05
   const x = e => L + e / e1 * (W - L - R), y = v => T + (1 - v / ymax) * (H - T - B)
   let g = ''
@@ -238,7 +241,20 @@ function lossChart(losses, evals) {
   g += `<text x="${L}" y="${H - 4}">época 0</text><text x="${W - R}" y="${H - 4}" text-anchor="end">época ${e1.toFixed(2)}</text>`
   const line = losses.map((p, i) => (i ? 'L' : 'M') + x(p.epoch).toFixed(1) + ',' + y(p.loss).toFixed(1)).join('')
   const dots = evals.map(p => `<circle class="evalp" cx="${x(p.epoch)}" cy="${y(p.loss)}" r="4"/>`).join('')
-  $('t-chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Loss ao longo do treino">${g}<path class="lossp" d="${line}"/>${dots}</svg>`
+  let old = ''
+  if (cmp && cmp.losses.length > 1) {
+    old = `<path class="cmpp" d="${cmp.losses.map((p, i) => (i ? 'L' : 'M') + x(p.epoch).toFixed(1) + ',' + y(p.loss).toFixed(1)).join('')}"/>`
+      + cmp.evals.map(p => `<circle class="cmpe" cx="${x(p.epoch)}" cy="${y(p.loss)}" r="4"/>`).join('')
+  }
+  $('t-chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Loss ao longo do treino">${g}${old}<path class="lossp" d="${line}"/>${dots}</svg>`
+}
+
+// Loss de validação do treino anterior no mesmo ponto da época da última medida deste.
+function sameMoment(evals, cmp) {
+  if (!cmp || !cmp.evals.length || !evals.length) return null
+  const now = evals[evals.length - 1]
+  const near = cmp.evals.reduce((a, b) => Math.abs(b.epoch - now.epoch) < Math.abs(a.epoch - now.epoch) ? b : a)
+  return { now: now.loss, before: near.loss }
 }
 
 async function refreshTraining() {
@@ -263,9 +279,11 @@ async function refreshTraining() {
     $('t-eval').textContent = last(t.evals)
     $('t-elapsed').textContent = t.trained_s != null ? duration(t.trained_s / 3600) : '–'
     $('t-pace').textContent = t.pace_s != null ? `${Math.round(t.pace_s)} s` : '–'
-    lossChart(t.losses, t.evals)
+    lossChart(t.losses, t.evals, t.compare)
+    const same = sameMoment(t.evals, t.compare)
+    const vs = same ? ` Linha tracejada e círculos vazios: o treino anterior (${t.compare.name}). No mesmo ponto da época, capítulos de fora: agora ${same.now.toFixed(3)}, antes ${same.before.toFixed(3)} (${same.now <= same.before ? 'melhor' : 'pior'}; menor é melhor).` : ''
     $('t-note').textContent = t.state === 'failed' || t.state === 'stopped' ? 'Última linha do log: ' + t.last_line
-      : t.evals.length ? 'Pontos laranja: loss nos capítulos que o modelo nunca viu (medida a cada 200 passos).' : ''
+      : t.evals.length ? 'Linha cheia e pontos laranja: este treino (pontos = loss nos capítulos que o modelo nunca viu, a cada 200 passos).' + vs : ''
   } catch (err) { /* a parte do dataset já avisa quando o servidor cai */ }
 }
 
