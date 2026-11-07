@@ -29,4 +29,6 @@ bench qwen35-2b Qwen3.5-2B-GGUF/Qwen3.5-2B-Q8_0.gguf Qwen3.5-2B-GGUF/mmproj-F16.
 bench qwen35-4b Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf Qwen3.5-4B-GGUF/mmproj-F16.gguf "${NOTHINK[@]}"
 # Qwen3.5-2B treinado no dataset-pt (runs/q35-2b), Q8_0, sem raciocínio como no treino.
 bench qwen35-2b-trained ../../runs/q35-2b/gguf/q35-manga-q8_0.gguf ../../runs/q35-2b/gguf/q35-manga-mmproj-f16.gguf "${NOTHINK[@]}"
+# Segundo treino: igual, com só um quinto das repescagens vazias (runs/q35-2b-v2).
+bench qwen35-2b-trained-v2 ../../runs/q35-2b-v2/gguf/q35-manga-q8_0.gguf ../../runs/q35-2b-v2/gguf/q35-manga-mmproj-f16.gguf "${NOTHINK[@]}"
 echo "FIM"

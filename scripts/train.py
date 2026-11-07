@@ -35,6 +35,8 @@ def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--name", default="manga-translate")
     p.add_argument("--base", default=BASE_MODEL)
+    p.add_argument("--empty-followups", type=float, default=1.0, help="fração das repescagens sem tradução mantida"
+                   " no treino (elas ensinam que deixar caixas de fora é a resposta comum)")
     p.add_argument("--max-tokens", type=int, default=MAX_TOKENS, help="pedido mais longo treinado (as páginas encolhem para caber)")
     p.add_argument("--dataset", help="pasta do dataset (padrão: training-dataset do Manga Index), ex.: dataset-pt/final")
     p.add_argument("--val-chapters", type=float, default=0.03, help="fração dos capítulos fora do treino")
@@ -76,12 +78,27 @@ class Requests(Dataset):
         return images, r["prompt"], r["answer"]
 
 
+def translated(answer):
+    """Se a resposta traduz alguma coisa (algum bloco com tradução)."""
+    try:
+        blocks = json.loads(answer[answer.find("{"): answer.rfind("}") + 1]).get("blocks", [])
+    except (ValueError, AttributeError):
+        return False
+    return any(isinstance(b, dict) and str(b.get("translation") or "").strip() for b in blocks)
+
+
 def load_examples(args):
     train, val = [], []
     for file in sorted((DATASET / "annotations").glob("*.jsonl")):
         with open(file, encoding="utf-8") as f:
             records = [json.loads(line) for line in f if line.strip()]
         (val if held_out(file.stem, args.val_chapters) else train).extend(records)
+    if args.empty_followups < 1:
+        rng = random.Random(0)
+        empty = [r for r in train if r["kind"] == "followup" and not translated(r["answer"])]
+        drop = {id(r) for r in empty if rng.random() >= args.empty_followups}
+        train = [r for r in train if id(r) not in drop]
+        print(f"repescagens vazias: {len(empty) - len(drop)} de {len(empty)} mantidas")
     random.Random(0).shuffle(val)
     val = val[: args.val_max]
     print(f"treino: {len(train)} pedidos, validação: {len(val)} (capítulos fora do treino)")
